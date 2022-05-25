@@ -1,0 +1,46 @@
+---
+title: "Heading"
+date : "`r format(Sys.time(), '%d.%m.%Y')` - [Github](https://github.com/chmedia-data/ad-hoc-22-0X_XXX)"
+author: '[Adrian Oesch](mailto:adrian.oesch@chmedia.ch)'
+knit: (function(inputFile,encoding){
+  rmarkdown::render(
+    inputFile,
+    encoding=encoding,
+    output_file='index.html',
+    output_dir='docs'
+  )})
+output:
+  html_document:
+    number_sections: true
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: true
+highlight: zenburn
+graphics: yes
+css: 'style.css'
+---
+
+```{r settings, warning=F, message=F}
+source('utils.r')
+```
+
+# First Chapter
+```{r}
+d = data.frame(
+  category=c('a','b','c','d'),
+  value=sample(1:10,4)
+)
+
+ggplotly(
+  ggplot(d,aes(
+      x=category,
+      y=value,
+      fill=category))+
+    geom_bar(stat="identity")+
+    pastelColors(d$category)
+)
+```
+
+# Second Chapter
+A lot has happened!
