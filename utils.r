@@ -83,7 +83,7 @@ getQueryData = function(
     }
   }
   for(col in names(df)){
-    if( ('time' == col) || grepl('date',col) ){
+    if( grepl('time',col) || grepl('date',col) ){
       df[,col] = as.POSIXct(df[,col])
     }
   }

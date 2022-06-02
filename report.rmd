@@ -1,6 +1,6 @@
 ---
-title: "Heading"
-date : "`r format(Sys.time(), '%d.%m.%Y')` - [Github](https://github.com/chmedia-data/ad-hoc-22-0X_XXX)"
+title: "Front Positions & Referrals"
+date : "`r format(Sys.time(), '%d.%m.%Y')` - [Repository](https://github.com/chmedia-data/ad-hoc-22-05_front-position-referrals)"
 author: '[Adrian Oesch](mailto:adrian.oesch@chmedia.ch)'
 knit: (function(inputFile,encoding){
   rmarkdown::render(
@@ -23,24 +23,210 @@ css: 'style.css'
 
 ```{r settings, warning=F, message=F}
 source('utils.r')
+force = F
 ```
 
-# First Chapter
+Can we infer teaser performance by combining frontpage and article views referred from the front, combined with teaser position data that's scraped by NZZ Data?
+
+# Referral Rates by Position
+
+Inferred position data seems plausible. I'm not sure yet, whether the app is having such high CTRs because of some wrong assumptions, or because the app is primarily used by subscribers.
+
 ```{r}
-d = data.frame(
-  category=c('a','b','c','d'),
-  value=sample(1:10,4)
-)
+d = getQueryData("ctr_by_front_position",force=force)
 
 ggplotly(
   ggplot(d,aes(
-      x=category,
-      y=value,
-      fill=category))+
-    geom_bar(stat="identity")+
-    pastelColors(d$category)
+      x=front_position,
+      y=ctr,
+      color=device))+
+    geom_line(stat="identity")+
+    scale_color_brewer(palette=7,type="qual")
 )
 ```
 
-# Second Chapter
-A lot has happened!
+
+<!-- Comparing two "competing" articles only considering mobile devices cleaner data? -->
+
+<!-- ```{r} -->
+<!-- d = getQueryData("ctr_competing",force=force) -->
+
+<!-- x = d[!is.na(d$front_position),] -->
+<!-- scaling = ( max(x$front_position) / max(d$referral_rate) ) -->
+<!-- x["referral_rate_scaled"] = x$referral_rate * scaling -->
+
+<!-- x2 = melt(x[,c("time_15min","article_id","referral_rate_scaled","front_position")], -->
+<!--   id.vars=c("time_15min","article_id")) -->
+<!-- x2$article_vars = paste0(x2$article_id,"-",x2$variable) -->
+
+<!-- ggplotly( -->
+<!--   ggplot(x2,aes( -->
+<!--       x=time_15min, -->
+<!--       y=value, -->
+<!--       color=article_vars))+ -->
+<!--     geom_line(alpha=0.7,)+ -->
+<!--     scale_y_continuous( -->
+<!--       "name"="front_position", -->
+<!--       sec.axis = sec_axis(~.*scaling, name="Second Axis") -->
+<!--     )+ -->
+<!--     theme(axis.text.x = element_text(angle=30))+ -->
+<!--     labs(x="") -->
+<!-- ) -->
+<!-- ``` -->
+
+# Referrals by Position
+
+How strong is the correlation between front-referrals and position?
+
+This plot is showing a sample of mobile referrals between 12-13h for each article with an average position below 30 (R-squared = 0.3).
+```{r}
+d = getQueryData("referrals_and_positions",force=force)
+x = d[d$avg_position<30 & d$front_referrals>0,]
+
+summary(
+  lm(
+    log(front_referrals)~log(avg_position),
+    x
+  )
+)
+
+
+ggplotly(
+  ggplot(x[sample(nrow(x),2000,replace=T),],aes(
+    x=avg_position,
+    y=front_referrals
+  ))+geom_point()+geom_smooth(method="lm",formula=y~log(x))+ylim(c(0,200))
+)
+
+```
+
+
+# Teaser Performance
+
+How does teaser performance look like for the lifetime of a individual article measured by front referral rate by position.
+
+```{r}
+d = getQueryData("ctr_timeline",force=force)
+
+x = d[!is.na(d$front_position) & d$device=="mobile",]
+scaling = ( max(x$front_position) / max(x$referral_rate) )
+x["referral_rate_scaled"] = x$referral_rate * scaling
+
+x2 = melt(x[,c("time_15min","device","referral_rate_scaled","front_position")],
+  id.vars=c("time_15min","device"))
+
+ggplotly(
+  ggplot(
+    x2,aes(
+      x=time_15min,
+      y=value,
+      color=variable
+    ))+
+    geom_line(alpha=0.7,)+
+    scale_y_continuous(
+      "name"="front_position",
+      sec.axis = sec_axis(~.*scaling, name="Second Axis")
+    )+
+    theme(axis.text.x = element_text(angle=30))+
+    labs(x="")
+)
+```
+
+# Referral Propensity Scoring
+
+Can we estimate the propensity of a teaser to be clicked given its position, views and referrals?
+
+```{r}
+d = getQueryData("referral_propensity_scoring",force=force)
+
+# knitr::kable(
+#   d[order(d$time_15min,decreasing=F),
+#      c("time_15min","front_position","front_referrals",
+#        "home_views","referral_rate","historical_referral_rate")
+#     ]
+# )
+```
+
+Proposal: For every 15min bin we calculate the probablitiy of an article to outperform the historical referral_rate on it's attributed position (based on the last 28d) with the beta distribution, where each home_view is considered to be a binary trial. Under this assumption the number of successes equals the number of front_referrals and the number of failures equals the home_views minus front_referrals.
+
+```{r class.source = 'fold-show'}
+dx = d[d$time_15min == as.POSIXct("2022-04-12 22:00:00"),]
+
+trials = dx$home_views
+successes = dx$front_referrals
+failures = dx$home_views - dx$front_referrals
+```
+
+The distribution function can be used to calculate the area under the distribution that is below a certain threshold. The area can also be interpreted as the probability for an article to perform better then a crititcal value, which in this case would be the historical referral_rate.
+
+```{r}
+beta = data.frame(x=seq(0,0.1,0.0005))
+beta$y = dbeta(beta$x,successes,failures)
+
+historical_rate = dx$historical_referral_rate
+
+p_beta = data.frame(x=seq(0,historical_rate,0.0005))
+p_beta$y = dbeta(p_beta$x,successes,failures)
+
+ggplotly(
+  ggplot(beta,aes(x=x,y=y))+geom_line()+
+    geom_vline(xintercept = historical_rate,color="red")+
+    geom_area(data=p_beta,aes(x=x,y=y),fill="red",alpha=0.4)+
+    labs(x="referral_rate",y="density")
+)
+```
+
+
+We can then aggregate the probabilities by taking a weighted average over a given window (f.e. last 3 hours).
+
+```{r}
+d$successes = d$front_referrals
+d$failures = d$home_views-d$front_referrals
+d$trials = d$home_views
+d$p_beta = pbeta(d$historical_referral_rate,d$successes,d$failures,lower.tail=F)
+
+d_3h = d[
+  d$time_15min>=as.POSIXct("2022-04-12 19:00:00") &
+  d$time_15min<as.POSIXct("2022-04-12 21:00:00"),
+  ]
+
+x = d_3h[
+      order(d_3h$time_15min,decreasing = T),
+      c("time_15min","front_referrals",
+        "home_views","referral_rate",
+        "historical_referral_rate","p_beta")
+  ]
+
+knitr::kable(x,
+  row.names = F,
+  digits = 3
+)
+```
+
+```{r class.source = 'fold-show'}
+p_beta = sum(d_3h$p_beta*d_3h$trials)/sum(d_3h$trials)
+p_beta
+```
+
+Potentially, the window aggregation can additionally also be combined with a decay function to attribute less weight to older evidence.
+
+```{r class.source = 'fold-show'}
+d_3h["measurement_age_in_hours"] = as.integer(max(d_3h$time_15min)-d_3h$time_15min)/3600
+
+for( decay_rate in c(10,3,1,0.5,0.2)){
+  d_3h[paste0("decay_weigth_",decay_rate)] = 1 * 2 ** -(d_3h$measurement_age_in_hours/decay_rate)  
+}
+
+x = melt(d_3h[,c("time_15min",
+                 "decay_weigth_10",
+                 "decay_weigth_3",
+                 "decay_weigth_1",
+                 "decay_weigth_0.5",
+                 "decay_weigth_0.2")],id.vars="time_15min")
+ggplotly(
+  ggplot(x,aes(x=time_15min,y=value,color=variable))+geom_line()
+)
+
+p_beta = sum(d_3h$p_beta*d_3h$trials*d_3h$decay_weigth_3)/sum(d_3h$trials*d_3h$decay_weigth_3)
+p_beta
+```

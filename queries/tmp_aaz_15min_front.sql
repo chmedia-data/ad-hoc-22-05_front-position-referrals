@@ -1,4 +1,4 @@
-create table chmedia.tmp_aaz_15min_front as (
+create or replace table chmedia.tmp_aaz_15min_front as (
 
     with enriched as (
         select
@@ -7,6 +7,7 @@ create table chmedia.tmp_aaz_15min_front as (
             data.digitalData.component.list[offset(0)].element.category.componentType = 'article' as is_article,
             data.digitalData.component.list[offset(0)].element.componentInfo.componentId as article_id,
             publish_path like "%news" as is_newsapp,
+            data.ingress.navigator.isMobile.any as is_mobile,
             data.ingress.referrer is null as missing_referrer,
             split(data.ingress.referrer,"?")[offset(0)] = "https://www.aargauerzeitung.ch/" as has_home_referrer,
             datetime_add(
@@ -22,6 +23,11 @@ create table chmedia.tmp_aaz_15min_front as (
     select
         day_dt,
         time_15min,
+        case
+          when is_newsapp then "app"
+          when is_mobile then "mobile"
+          else "desktop"
+        end as device,
         if(is_home,"home",article_id) as page_id,
         count(*) as nviews
     from enriched
@@ -38,6 +44,6 @@ create table chmedia.tmp_aaz_15min_front as (
             ( is_article and has_home_referrer)
             )
         )
-    group by 1,2,3
+    group by 1,2,3,4
     order by 4 desc
 )
