@@ -287,3 +287,7 @@ table_data = all_recs[
 
 DT::datatable(table_data,list(dom = 't'),rownames=F)
 ```
+
+This does look to be an at least reasonable recommendation. 
+
+As a further improvement one could be an additional position penalty to p_beta ranking because the likelihood of outperforming the historical average of a certain position, doesn't necessarily relate to the same success on a higher position.
