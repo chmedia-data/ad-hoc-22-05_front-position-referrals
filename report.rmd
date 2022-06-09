@@ -230,3 +230,60 @@ ggplotly(
 p_beta = sum(d_3h$p_beta*d_3h$trials*d_3h$decay_weigth_3)/sum(d_3h$trials*d_3h$decay_weigth_3)
 p_beta
 ```
+
+# Recommendation Snapshot
+
+Based on this methodology, what would the top 10 recommendations look like on a given timestamp (f.e. 2022-04-12 21:00:00), window length (f.e. 4 hours) and how does it compare to the ranking on the front or most-read recommendations?
+
+```{r}
+d = getQueryData("referral_snapshot",force=force)
+
+d = d[
+  d$time_15min < as.POSIXct("2022-04-12 21:00:00") &
+  d$time_15min >= as.POSIXct("2022-04-12 17:00:00"),
+]
+d$successes = d$front_referrals
+d$failures = d$home_views-d$front_referrals
+d$trials = d$home_views
+
+d$measurement_age_in_hours = as.integer(max(d$time_15min)-d$time_15min)/3600
+
+decay_rate = 3
+d$decay_weigth = 1 * 2 ** -(d$measurement_age_in_hours/decay_rate)  
+d$p_beta = pbeta(d$historical_referral_rate,d$successes,d$failures,lower.tail=F)
+
+recs = d %>% group_by(article_id) %>% summarise(
+  avg_position = mean(front_position,na.rm=T),
+  front_referrals = sum(front_referrals,na.rm=T),
+  p_beta = sum(p_beta*trials*decay_weigth,na.rm=T)/sum(trials*decay_weigth,na.rm=T)
+)
+
+
+recs[order(recs$p_beta,decreasing = T),"front_referral_rank"] = 1:nrow(recs)
+recs[order(recs$front_referrals,decreasing = T),"most_read_rank"] = 1:nrow(recs)
+
+front = getQueryData("front_snapshot",force=force)
+
+# remove live teaser due to missing time_decay
+front = front[!grepl("\\+\\+\\+",as.character(front$title)),]
+front[order(front$front_position,decreasing = F),"front_rank"] = 1:nrow(front)
+
+all_recs = merge(front,recs,by="article_id",all=T)
+all_recs$p_beta = round(all_recs$p_beta,3)
+all_recs$avg_position = round(all_recs$avg_position,1)
+
+n_recs = 5
+
+table_data = all_recs[
+      ifelse(all_recs$front_rank <= n_recs & !is.na(all_recs$front_rank),TRUE,
+         ifelse(all_recs$most_read_rank <= n_recs & !is.na(all_recs$most_read_rank),TRUE,
+            ifelse(all_recs$front_referral_rank <= n_recs & !is.na(all_recs$front_referral_rank),TRUE,FALSE))),
+         c(
+           "title","publication_date",
+           "front_rank","most_read_rank","front_referral_rank",
+           "front_referrals","avg_position","p_beta"
+            )
+      ]
+
+DT::datatable(table_data,list(dom = 't'),rownames=F)
+```

@@ -82,9 +82,13 @@ getQueryData = function(
       df[,col] = gsub('"','',df[,col])
     }
   }
+
   for(col in names(df)){
     if( grepl('time',col) || grepl('date',col) ){
-      df[,col] = as.POSIXct(df[,col])
+      is_date = inherits(df[,col][[1]],"POSIXct")
+      if (!is_date){
+        df[,col] = as.POSIXct(df[,col])
+      }
     }
   }
 
